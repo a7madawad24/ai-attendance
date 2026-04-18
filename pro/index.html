@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Attendance</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+:root{ --primary:#0052cc; --secondary:#0747a6; --bg:#f4f6f9; --white:#ffffff; --success:#36b37e; --danger:#ff5630; --warning:#ffab00; --dark:#172b4d; --gray:#6b778c; }
+body{ font-family: 'Inter', sans-serif; margin:0; background:var(--bg); color: var(--dark); overflow-x: hidden; }
+
+/* SIDEBAR STYLES */
+.sidebar{ width:260px; height:100vh; background:var(--dark); color:white; position:fixed; padding:25px; z-index: 100; box-shadow: 4px 0 10px rgba(0,0,0,0.1); }
+.sidebar h2{ font-size: 1.3rem; margin-bottom:40px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 20px; color: #ebecf0; }
+.sidebar button{ display:block; width:100%; margin-bottom:12px; padding:14px; border:none; background:transparent; color:#a5adba; border-radius:10px; cursor:pointer; text-align:left; font-size: 0.95rem; transition: all 0.3s ease; }
+.sidebar button:hover, .sidebar button.active{ background:rgba(255,255,255,0.15); color:white; transform: translateX(5px); }
+
+/* TOPBAR */
+.topbar{ position:fixed; left:260px; right:0; top:0; height:75px; background:white; display:flex; align-items:center; justify-content:space-between; padding:0 35px; box-shadow:0 2px 5px rgba(0,0,0,0.05); z-index: 50; }
+
+/* LAYOUT & SECTIONS */
+.main{ margin-left:260px; margin-top:75px; padding:35px; transition: 0.3s; }
+.section{ display:none; animation: slideUp 0.5s ease forwards; }
+.section.active{ display:block; }
+@keyframes slideUp { from{opacity:0; transform:translateY(20px);} to{opacity:1; transform:translateY(0);} }
+
+/* CARDS DESIGN */
+.card{ background:white; padding:30px; border-radius:16px; margin-bottom:25px; box-shadow:0 4px 15px rgba(0,0,0,0.04); border: 1px solid #e1e4e8; transition: transform 0.3s; }
+.card:hover { transform: translateY(-2px); }
+.grid-3{ display:grid; grid-template-columns:repeat(3,1fr); gap:25px; margin-bottom:25px; }
+
+.stat-card{ background:white; padding:25px; border-radius:16px; border-left: 6px solid var(--primary); display: flex; flex-direction: column; justify-content: center; }
+.stat-card h3{ margin:0; font-size: 2rem; color: var(--dark); }
+.stat-card p{ margin:8px 0 0; color: var(--gray); font-weight: 500; font-size: 0.9rem; }
+
+/* SCANNER UI */
+.scanner-grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 25px; }
+.video-box{ background:#1a1a1a; border-radius:20px; position:relative; overflow:hidden; aspect-ratio:16/9; border:10px solid #fff; box-shadow: 0 15px 45px rgba(0,0,0,0.15); }
+video{ width:100%; height:100%; transform:scaleX(-1); object-fit:cover; }
+canvas{ position:absolute; top:0; left:0; width:100%; height:100%; }
+
+/* EMPLOYEE PROFILE MODAL */
+#profileModal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(9, 30, 66, 0.7); z-index:1000; justify-content:center; align-items:center; backdrop-filter: blur(8px); }
+.profile-card { background:white; width:480px; padding:40px; border-radius:24px; position:relative; text-align:center; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
+.profile-img { width:130px; height:130px; border-radius:50%; object-fit:cover; border:5px solid var(--primary); margin-bottom:20px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+
+/* TABLES STYLING */
+table{ width:100%; border-collapse:collapse; margin-top: 15px; background: white; }
+th{ background:#f8f9fa; color:var(--gray); font-size: 0.8rem; text-transform: uppercase; padding:15px; text-align: left; letter-spacing: 1px; }
+td{ padding:18px 15px; border-bottom:1px solid #f0f1f3; font-size: 0.95rem; }
+tr:hover { background: #fcfdfe; }
+
+/* BADGES & BUTTONS */
+.badge { padding: 6px 12px; border-radius: 8px; font-weight: 700; font-size: 0.75rem; display: inline-block; }
+.bg-late { background: #fff0b3; color: #826a00; }
+.bg-present { background: #e3fcef; color: #006644; }
+.btn-primary { background: var(--primary); color:white; border:none; padding:12px 25px; border-radius:10px; cursor:pointer; font-weight:600; font-size: 0.9rem; transition: 0.3s; }
+.btn-primary:hover { background: var(--secondary); box-shadow: 0 4px 12px rgba(0,82,204,0.3); }
+
+/* POPUP NOTIFICATION */
+#popup { position: fixed; bottom: 40px; right: 40px; background: white; padding: 25px; border-radius: 18px; box-shadow: 0 15px 50px rgba(0,0,0,0.18); display: none; align-items: center; gap: 20px; border-left: 8px solid var(--success); z-index: 9999; min-width: 300px; animation: bounceIn 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55); }
+@keyframes bounceIn { from {transform: scale(0.5); opacity:0;} to {transform: scale(1); opacity:1;} }
+</style>
+</head>
+<body>
+
+<div id="popup">
+    <div style="font-size: 32px;">🎯</div>
+    <div>
+        <strong id="popName" style="font-size: 1.1rem; color: var(--dark);">Name</strong>
+        <div id="popStatus" style="font-size: 0.9rem; color: var(--primary); font-weight:bold; margin-top:3px;">Action Detected</div>
+        <div id="popTime" style="font-size: 0.8rem; color: var(--gray);">Time: 00:00</div>
+    </div>
+</div>
+
+<div id="profileModal" onclick="closeProfile(event)">
+    <div class="profile-card" onclick="event.stopPropagation()">
+        <img src="" id="profImg" class="profile-img">
+        <h2 id="profName" style="margin-bottom:5px;">User Name</h2>
+        <p id="profRole" style="color:var(--gray); margin-bottom:25px;">Management Information Systems</p>
+        <div class="grid-3">
+            <div style="background:#f4f6f9; padding:15px; border-radius:12px;"><h3 id="profDays" style="font-size:1.4rem">0</h3><p style="font-size:0.75rem">Present</p></div>
+            <div style="background:#f4f6f9; padding:15px; border-radius:12px;"><h3 id="profLates" style="font-size:1.4rem">0</h3><p style="font-size:0.75rem">Late</p></div>
+            <div style="background:#f4f6f9; padding:15px; border-radius:12px;"><h3 id="profHours" style="font-size:1.4rem">0</h3><p style="font-size:0.75rem">Hours</p></div>
+        </div>
+        <div style="text-align:left; margin-top:25px; background:#ebf2ff; padding:20px; border-radius:15px; border:1px solid #cce0ff;">
+            <p style="margin:8px 0; color:var(--dark)"><strong>Base Salary:</strong> <span id="profSalary">0</span> EGP</p>
+            <p style="margin:8px 0; color:var(--primary)"><strong>Total Fines:</strong> <span id="profFines">0</span> EGP</p>
+            <p style="margin:8px 0; font-size:1.2rem; color:var(--success)"><strong>Net Salary:</strong> <span id="profNet">0</span> EGP</p>
+        </div>
+        <button class="btn-primary" style="margin-top:25px; width:100%" onclick="closeProfile()">Close Profile</button>
+    </div>
+</div>
+
+<div id="loginPage" style="max-width:380px; margin:140px auto; background:white; padding:50px; border-radius:24px; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,0.1);">
+    <h2 style="color:var(--dark); margin-bottom:10px;">Security Portal</h2>
+    <p style="color:var(--gray); font-size:0.9rem; margin-bottom:30px;">Access Employee Management System</p>
+    <input id="email_input" placeholder="Admin Username" value="admin" style="width:100%; padding:14px; margin:10px 0; border:2px solid #edeff2; border-radius:10px; box-sizing:border-box;">
+    <input id="pass_input" type="password" placeholder="Password" value="1234" style="width:100%; padding:14px; margin:10px 0; border:2px solid #edeff2; border-radius:10px; box-sizing:border-box;">
+    <button class="btn-primary" style="width:100%; padding:16px; margin-top:20px;" onclick="login()">Authenticate</button>
+</div>
+
+<div id="system" style="display:none">
+    <div class="sidebar">
+        <h2>AI-ATTENDANCE</h2>
+        <button onclick="showSection('scan')" id="btn-scan" class="active">📸 AI Scanner</button>
+        <button onclick="showSection('dashboard')" id="btn-dashboard">📊 AI Analytics</button>
+        <button onclick="showSection('history')" id="btn-history">📅 Daily Reports</button>
+        <button onclick="showSection('payroll')" id="btn-payroll">💰 Salary Manager</button>
+        <button onclick="showSection('admin')" id="btn-admin">⚙️ Settings</button>
+        <div style="position:absolute; bottom:30px; left:25px; right:25px;">
+             <button onclick="downloadReport()" style="background:var(--success); color:white; width:100%;">📥 Export Excel</button>
+        </div>
+    </div>
+
+    <div class="topbar">
+        <div style="font-weight:700; color:var(--primary); display:flex; align-items:center; gap:8px;">
+            <span style="width:10px; height:10px; background:var(--success); border-radius:50%; display:inline-block;"></span>
+            SYSTEM SECURE: LOCAL DB
+        </div>
+        <div id="clock" style="font-weight:600; color:var(--dark); letter-spacing:1px;"></div>
+    </div>
+
+    <div class="main">
+        <div id="scan" class="section active">
+            <div class="scanner-grid">
+                <div class="card">
+                    <button class="btn-primary" id="startBtn" onclick="initAI()" style="margin-bottom:20px; width:100%;">Initialize Facial Recognition Engine</button>
+                    <div id="aiStatus" style="margin-bottom: 15px; font-size:0.9rem; color:var(--gray); font-weight:600;">System Standby</div>
+                    <div class="video-box" id="camContainer">
+                        <video id="video" autoplay muted playsinline></video>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3 style="margin-top:0;">⚡ Live Scanner Feed</h3>
+                    <div id="liveFeed" style="max-height:450px; overflow-y:auto; border-radius:10px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="dashboard" class="section">
+            <div class="grid-3">
+                <div class="stat-card"><h3><span id="totalEmp">0</span></h3><p>Registered Staff</p></div>
+                <div class="stat-card" style="border-left-color:var(--success)"><h3><span id="avgAtt">0</span>%</h3><p>Daily Attendance Rate</p></div>
+                <div class="stat-card" style="border-left-color:var(--danger)"><h3><span id="mostLate">None</span></h3><p>Critical Tardiness</p></div>
+            </div>
+            <div class="card">
+                <h3>Real-time Company Performance (Hours)</h3>
+                <div style="height:350px; position: relative;">
+                    <canvas id="mainChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div id="history" class="section">
+            <div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <h3 style="margin:0;">Attendance Archives</h3>
+                    <input type="text" id="searchLog" placeholder="Search employee..." onkeyup="filterLog()" style="padding:10px; border:1px solid #ddd; border-radius:8px;">
+                </div>
+                <table>
+                    <thead>
+                        <tr><th>Date</th><th>Employee Name</th><th>Check-in</th><th>Check-out</th><th>Duration</th><th>Status</th></tr>
+                    </thead>
+                    <tbody id="historyTable"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="admin" class="section">
+            <div class="card">
+                <h3>Global Configuration</h3>
+                <div class="grid-3">
+                    <div><label style="display:block; margin-bottom:8px; font-weight:600;">Shift Start</label><input type="time" id="setLateTime" value="09:00" onchange="updateSettings()" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px;"></div>
+                    <div><label style="display:block; margin-bottom:8px; font-weight:600;">Late Penalty (EGP)</label><input type="number" id="setLateFine" value="100" onchange="updateSettings()" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px;"></div>
+                    <div><label style="display:block; margin-bottom:8px; font-weight:600;">Database Reset</label><button onclick="clearDatabase()" style="background:var(--danger); color:white; width:100%; border:none; padding:10px; border-radius:8px; cursor:pointer;">Wipe All Data</button></div>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Employee Management</h3>
+                <div class="grid-3">
+                    <input id="newEmpName" placeholder="Full Name" style="padding:10px; border:1px solid #ddd; border-radius:8px;">
+                    <input id="newEmpSalary" type="number" placeholder="Base Salary" style="padding:10px; border:1px solid #ddd; border-radius:8px;">
+                    <input id="newEmpImg" type="file" style="padding:8px; border:1px solid #ddd; border-radius:8px;">
+                </div>
+                <button class="btn-primary" onclick="addNewEmployee()" style="margin-top:15px;">Register in FaceDB</button>
+                <table style="margin-top:25px;">
+                    <thead><tr><th>Name</th><th>Base Salary</th><th>Control</th></tr></thead>
+                    <tbody id="adminStaffTable"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="payroll" class="section">
+            <div class="card">
+                <h3>Financial Summary</h3>
+                <table id="payrollTable">
+                    <thead><tr><th>Name</th><th>Base</th><th>Deductions</th><th>Active Hours</th><th>Net Payout</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/** * GLOBAL STATE MANAGEMENT */
+let CONFIG = JSON.parse(localStorage.getItem('sys_config')) || { lateTime: "09:00", lateFine: 100 };
+let employees = JSON.parse(localStorage.getItem('staff_db')) || [
+    {id:1, name:"Ahmed Awad", file:"ahmed.jpg", salary:12000},
+    {id:2, name:"Malak", file:"malak.jpg", salary:10000},
+    {id:3, name:"Adham", file:"adham.jpg", salary:9000}
+];
+let attendanceDB = JSON.parse(localStorage.getItem('att_db')) || [];
+let isLocked = false;
+let faceMatcher;
+let chartInstance = null;
+
+// Real-time Clock Implementation
+setInterval(() => { 
+    const options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' };
+    clock.innerText = new Date().toLocaleString('en-US', options); 
+}, 1000);
+
+function login(){
+    if(email_input.value=="admin" && pass_input.value=="1234"){
+        loginPage.style.display="none"; system.style.display="block";
+        updateStats(); renderAdminStaff();
+    } else { alert("Unauthorized Access"); }
+}
+
+function showSection(id){
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.sidebar button').forEach(b => b.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    document.getElementById('btn-'+id).classList.add('active');
+    
+    if(id === 'dashboard') { setTimeout(() => initRealAnalytics(), 100); }
+    if(id === 'history') renderLogTable();
+    if(id === 'payroll') renderPayrollSystem();
+}
+
+/** * AI CORE ENGINE (FACE-API) */
+async function initAI(){
+    aiStatus.innerText="⏳ Loading Neural Networks (SSD, Landmarks, Recognition)...";
+    await faceapi.tf.setBackend('webgl');
+    const MODEL_URL = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
+    await Promise.all([
+        faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+    ]);
+    faceMatcher = await trainFaceDB();
+    startCameraStream();
+    aiStatus.innerText="AI Engine Online: Neural Hub Active ✅";
+    startBtn.style.display = "none";
+}
+
+async function trainFaceDB(){
+    const labeledDescriptors = [];
+    for(const emp of employees){
+        try{
+            const img = await faceapi.fetchImage(`./labeled_images/${emp.file}`);
+            const detection = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+            if(detection) labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(emp.name, [detection.descriptor]));
+        }catch(e){ console.error("Could not process " + emp.name); }
+    }
+    return new faceapi.FaceMatcher(labeledDescriptors, 0.5);
+}
+
+function startCameraStream(){
+    navigator.mediaDevices.getUserMedia({video:{ width: 640, height: 480 }}).then(stream => {
+        video.srcObject = stream;
+        video.onplay = () => {
+            const canvas = faceapi.createCanvasFromMedia(video);
+            camContainer.append(canvas);
+            const displaySize = { width: video.offsetWidth, height: video.offsetHeight };
+            faceapi.matchDimensions(canvas, displaySize);
+
+            setInterval(async () => {
+                if(isLocked) return;
+                const detections = await faceapi.detectAllFaces(video).withFaceLandmarks().withFaceDescriptors();
+                const resizedResults = faceapi.resizeResults(detections, displaySize);
+                canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
+
+                resizedResults.forEach(d => {
+                    const bestMatch = faceMatcher.findBestMatch(d.descriptor);
+                    if(bestMatch.label !== "unknown") executeAttendanceLogic(bestMatch.label);
+                    new faceapi.draw.DrawBox(d.detection.box, { label: bestMatch.label }).draw(canvas);
+                });
+            }, 100);
+        };
+    });
+}
+
+/** * BUSINESS LOGIC: ATTENDANCE & PAYROLL */
+function executeAttendanceLogic(name){
+    const now = new Date();
+    const today = now.toLocaleDateString();
+    const timeStr = now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', hour12:false});
+    
+    let recordIndex = attendanceDB.findLastIndex(r => r.name === name && r.date === today);
+    let record = recordIndex !== -1 ? attendanceDB[recordIndex] : null;
+
+    if(!record || record.out){
+        const isLate = timeStr > CONFIG.lateTime;
+        attendanceDB.push({
+            date: today, name: name, in: now.getTime(), inStr: timeStr, out: null, outStr: "-", 
+            status: isLate ? "Late" : "Present", workHours: 0
+        });
+        triggerPopup(name, "Check-in Successful", timeStr);
+    } else {
+        if(now.getTime() - record.in < 30000) return;
+        let diffMs = now.getTime() - record.in;
+        let hoursDecimal = (diffMs / (1000 * 60 * 60)).toFixed(2);
+        
+        attendanceDB[recordIndex].out = now.getTime();
+        attendanceDB[recordIndex].outStr = timeStr;
+        attendanceDB[recordIndex].workHours = parseFloat(hoursDecimal);
+        triggerPopup(name, "Check-out Recorded", timeStr);
+    }
+    persistData();
+    updateLiveScannerFeed(name, timeStr);
+}
+
+function triggerPopup(name, status, time){
+    isLocked = true;
+    popName.innerText = name; popStatus.innerText = status; popTime.innerText = "Logged at: " + time;
+    popup.style.display = 'flex';
+    const msg = new SpeechSynthesisUtterance(name + " " + status);
+    window.speechSynthesis.speak(msg);
+    setTimeout(() => { popup.style.display = 'none'; isLocked = false; }, 4000);
+}
+
+/** * REAL-TIME ANALYTICS (GRAPH LOGIC) */
+function initRealAnalytics(){
+    totalEmp.innerText = employees.length;
+    let lates = {};
+    attendanceDB.filter(r => r.status === "Late").forEach(r => { lates[r.name] = (lates[r.name] || 0) + 1; });
+    mostLate.innerText = Object.keys(lates).reduce((a, b) => lates[a] > lates[b] ? a : b, "None");
+
+    const today = new Date().toLocaleDateString();
+    let uniquePresent = [...new Set(attendanceDB.filter(r => r.date === today).map(r => r.name))].length;
+    avgAtt.innerText = employees.length > 0 ? Math.round((uniquePresent / employees.length) * 100) : 0;
+
+    const ctx = document.getElementById('mainChart').getContext('2d');
+    if(chartInstance) { chartInstance.destroy(); }
+    
+    const last5Days = [...new Set(attendanceDB.map(r => r.date))].slice(-5);
+    const dailyTotals = last5Days.map(d => {
+        return attendanceDB.filter(r => r.date === d).reduce((s, r) => s + (r.workHours || 0), 0);
+    });
+
+    chartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: last5Days.length > 0 ? last5Days : ['No Records'],
+            datasets: [{ label: 'Total Company Work Hours', data: dailyTotals.length > 0 ? dailyTotals : [0], backgroundColor: '#0052cc', borderRadius: 8 }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+    });
+}
+
+function renderLogTable(){
+    const tbody = historyTable;
+    tbody.innerHTML = "";
+    [...attendanceDB].reverse().forEach(r => {
+        const badgeClass = r.status === "Late" ? "bg-late" : "bg-present";
+        tbody.innerHTML += `<tr><td>${r.date}</td><td><strong>${r.name}</strong></td><td>${r.inStr}</td><td>${r.outStr}</td><td>${r.workHours}h</td><td><span class="badge ${badgeClass}">${r.status}</span></td></tr>`;
+    });
+}
+
+/** * EMPLOYEE PROFILE MODAL ENGINE */
+function openProfile(name){
+    const emp = employees.find(e => e.name === name);
+    const logs = attendanceDB.filter(r => r.name === name);
+    profName.innerText = emp.name;
+    profImg.src = `./labeled_images/${emp.file}`;
+    profSalary.innerText = emp.salary;
+    profDays.innerText = logs.length;
+    profLates.innerText = logs.filter(r => r.status === "Late").length;
+    let sumHrs = logs.reduce((s, r) => s + r.workHours, 0);
+    profHours.innerText = sumHrs.toFixed(1);
+    let deduction = logs.filter(r => r.status === "Late").length * CONFIG.lateFine;
+    profFines.innerText = deduction;
+    profNet.innerText = (emp.salary - deduction) + " EGP";
+    profileModal.style.display = "flex";
+}
+
+function closeProfile(){ profileModal.style.display = "none"; }
+
+/** * ADMIN CONTROLS */
+function addNewEmployee(){
+    const name = newEmpName.value;
+    const sal = newEmpSalary.value;
+    const imgName = newEmpImg.files[0] ? newEmpImg.files[0].name : "default.jpg";
+    if(!name || !sal) { alert("Incomplete Data"); return; }
+    employees.push({ id: Date.now(), name, file: imgName, salary: parseInt(sal) });
+    persistData();
+    renderAdminStaff();
+}
+
+function renderAdminStaff(){
+    adminStaffTable.innerHTML = "";
+    employees.forEach(e => {
+        adminStaffTable.innerHTML += `<tr><td>${e.name}</td><td>${e.salary} EGP</td><td><button onclick="deleteStaff(${e.id})" style="color:var(--danger); border:none; background:none; cursor:pointer;">Remove</button></td></tr>`;
+    });
+}
+
+function deleteStaff(id){
+    if(confirm("Delete this employee?")) {
+        employees = employees.filter(e => e.id !== id);
+        persistData();
+        renderAdminStaff();
+    }
+}
+
+function renderPayrollSystem(){
+    const tbody = payrollTable.querySelector('tbody');
+    tbody.innerHTML = "";
+    employees.forEach(e => {
+        let lates = attendanceDB.filter(r => r.name === e.name && r.status === "Late").length;
+        let totalH = attendanceDB.filter(r => r.name === e.name).reduce((s, r) => s + r.workHours, 0);
+        let net = e.salary - (lates * CONFIG.lateFine);
+        tbody.innerHTML += `<tr><td>${e.name}</td><td>${e.salary}</td><td>${lates * CONFIG.lateFine}</td><td>${totalH.toFixed(1)}h</td><td style="color:var(--success); font-weight:bold;">${net} EGP</td></tr>`;
+    });
+}
+
+function updateSettings(){
+    CONFIG.lateTime = setLateTime.value;
+    CONFIG.lateFine = parseInt(setLateFine.value);
+    localStorage.setItem('sys_config', JSON.stringify(CONFIG));
+}
+
+function clearDatabase(){
+    if(confirm("CRITICAL: Wipe all attendance logs?")) {
+        attendanceDB = [];
+        persistData();
+        alert("Logs Cleared");
+    }
+}
+
+function persistData(){
+    localStorage.setItem('staff_db', JSON.stringify(employees));
+    localStorage.setItem('att_db', JSON.stringify(attendanceDB));
+}
+
+function updateLiveScannerFeed(name, time){
+    const feed = document.getElementById('liveFeed');
+    const entry = `<div style="padding:15px; border-bottom:1px solid #f0f0f0; background:white; font-size:0.9rem; animation:fadeIn 0.5s;">📢 <strong>${name}</strong> validated at ${time}</div>`;
+    feed.innerHTML = entry + feed.innerHTML;
+}
+
+function downloadReport(){
+    const worksheet = XLSX.utils.json_to_sheet(attendanceDB);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Log");
+    XLSX.writeFile(workbook, "Company_Attendance_Final.xlsx");
+}
+</script>
+</body>
+</html>
