@@ -150,7 +150,7 @@ tr:hover { background: #fcfdfe; }
             </div>
             <div class="card">
                 <h3>Real-time Company Performance (Hours)</h3>
-                <div style="height:350px;">
+                <div style="height:350px; position: relative;">
                     <canvas id="mainChart"></canvas>
                 </div>
             </div>
@@ -239,7 +239,7 @@ function showSection(id){
     document.getElementById(id).classList.add('active');
     document.getElementById('btn-'+id).classList.add('active');
     
-    if(id === 'dashboard') initRealAnalytics();
+    if(id === 'dashboard') { setTimeout(() => initRealAnalytics(), 100); }
     if(id === 'history') renderLogTable();
     if(id === 'payroll') renderPayrollSystem();
 }
@@ -247,7 +247,7 @@ function showSection(id){
 /** * AI CORE ENGINE (FACE-API) */
 async function initAI(){
     aiStatus.innerText="⏳ Loading Neural Networks (SSD, Landmarks, Recognition)...";
-    await faceapi.tf.setBackend('cpu');
+    await faceapi.tf.setBackend('webgl');
     const MODEL_URL = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
     await Promise.all([
         faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
@@ -273,7 +273,7 @@ async function trainFaceDB(){
 }
 
 function startCameraStream(){
-    navigator.mediaDevices.getUserMedia({video:{}}).then(stream => {
+    navigator.mediaDevices.getUserMedia({video:{ width: 640, height: 480 }}).then(stream => {
         video.srcObject = stream;
         video.onplay = () => {
             const canvas = faceapi.createCanvasFromMedia(video);
@@ -292,7 +292,7 @@ function startCameraStream(){
                     if(bestMatch.label !== "unknown") executeAttendanceLogic(bestMatch.label);
                     new faceapi.draw.DrawBox(d.detection.box, { label: bestMatch.label }).draw(canvas);
                 });
-            }, 1000);
+            }, 100);
         };
     });
 }
@@ -307,7 +307,6 @@ function executeAttendanceLogic(name){
     let record = recordIndex !== -1 ? attendanceDB[recordIndex] : null;
 
     if(!record || record.out){
-        // CHECK-IN PROCESS
         const isLate = timeStr > CONFIG.lateTime;
         attendanceDB.push({
             date: today, name: name, in: now.getTime(), inStr: timeStr, out: null, outStr: "-", 
@@ -315,8 +314,7 @@ function executeAttendanceLogic(name){
         });
         triggerPopup(name, "Check-in Successful", timeStr);
     } else {
-        // CHECK-OUT PROCESS
-        if(now.getTime() - record.in < 30000) return; // Ignore accidental triggers within 30s
+        if(now.getTime() - record.in < 30000) return;
         let diffMs = now.getTime() - record.in;
         let hoursDecimal = (diffMs / (1000 * 60 * 60)).toFixed(2);
         
@@ -333,7 +331,6 @@ function triggerPopup(name, status, time){
     isLocked = true;
     popName.innerText = name; popStatus.innerText = status; popTime.innerText = "Logged at: " + time;
     popup.style.display = 'flex';
-    // Voice Feedback
     const msg = new SpeechSynthesisUtterance(name + " " + status);
     window.speechSynthesis.speak(msg);
     setTimeout(() => { popup.style.display = 'none'; isLocked = false; }, 4000);
@@ -342,20 +339,16 @@ function triggerPopup(name, status, time){
 /** * REAL-TIME ANALYTICS (GRAPH LOGIC) */
 function initRealAnalytics(){
     totalEmp.innerText = employees.length;
-    
-    // Calculate Most Late
     let lates = {};
     attendanceDB.filter(r => r.status === "Late").forEach(r => { lates[r.name] = (lates[r.name] || 0) + 1; });
     mostLate.innerText = Object.keys(lates).reduce((a, b) => lates[a] > lates[b] ? a : b, "None");
 
-    // Dynamic Daily Attendance %
     const today = new Date().toLocaleDateString();
     let uniquePresent = [...new Set(attendanceDB.filter(r => r.date === today).map(r => r.name))].length;
     avgAtt.innerText = employees.length > 0 ? Math.round((uniquePresent / employees.length) * 100) : 0;
 
-    // Real Data Charting
     const ctx = document.getElementById('mainChart').getContext('2d');
-    if(chartInstance) chartInstance.destroy();
+    if(chartInstance) { chartInstance.destroy(); }
     
     const last5Days = [...new Set(attendanceDB.map(r => r.date))].slice(-5);
     const dailyTotals = last5Days.map(d => {
@@ -368,7 +361,7 @@ function initRealAnalytics(){
             labels: last5Days.length > 0 ? last5Days : ['No Records'],
             datasets: [{ label: 'Total Company Work Hours', data: dailyTotals.length > 0 ? dailyTotals : [0], backgroundColor: '#0052cc', borderRadius: 8 }]
         },
-        options: { responsive: true, maintainAspectRatio: false }
+        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
     });
 }
 
@@ -377,15 +370,7 @@ function renderLogTable(){
     tbody.innerHTML = "";
     [...attendanceDB].reverse().forEach(r => {
         const badgeClass = r.status === "Late" ? "bg-late" : "bg-present";
-        tbody.innerHTML += `
-            <tr onclick="openProfile('${r.name}')" style="cursor:pointer">
-                <td>${r.date}</td>
-                <td><strong>${r.name}</strong></td>
-                <td>${r.inStr}</td>
-                <td>${r.outStr}</td>
-                <td>${r.workHours}h</td>
-                <td><span class="badge ${badgeClass}">${r.status}</span></td>
-            </tr>`;
+        tbody.innerHTML += `<tr><td>${r.date}</td><td><strong>${r.name}</strong></td><td>${r.inStr}</td><td>${r.outStr}</td><td>${r.workHours}h</td><td><span class="badge ${badgeClass}">${r.status}</span></td></tr>`;
     });
 }
 
@@ -393,20 +378,16 @@ function renderLogTable(){
 function openProfile(name){
     const emp = employees.find(e => e.name === name);
     const logs = attendanceDB.filter(r => r.name === name);
-    
     profName.innerText = emp.name;
     profImg.src = `./labeled_images/${emp.file}`;
     profSalary.innerText = emp.salary;
     profDays.innerText = logs.length;
     profLates.innerText = logs.filter(r => r.status === "Late").length;
-    
     let sumHrs = logs.reduce((s, r) => s + r.workHours, 0);
     profHours.innerText = sumHrs.toFixed(1);
-    
     let deduction = logs.filter(r => r.status === "Late").length * CONFIG.lateFine;
     profFines.innerText = deduction;
     profNet.innerText = (emp.salary - deduction) + " EGP";
-
     profileModal.style.display = "flex";
 }
 
@@ -417,7 +398,6 @@ function addNewEmployee(){
     const name = newEmpName.value;
     const sal = newEmpSalary.value;
     const imgName = newEmpImg.files[0] ? newEmpImg.files[0].name : "default.jpg";
-    
     if(!name || !sal) { alert("Incomplete Data"); return; }
     employees.push({ id: Date.now(), name, file: imgName, salary: parseInt(sal) });
     persistData();
